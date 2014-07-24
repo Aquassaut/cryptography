@@ -1,0 +1,12 @@
+{
+  "name": "rsa",
+  "version": "1.0.0",
+  "description": "RSA implementation in javascript",
+  "main": "rsa",
+  "author": "Aquassaut (jeremy.autran@gmail.com)",
+  "license": "Cecill-B",
+  "dependencies": {
+    "bignum": "~0.6.2",
+    "commander": "~2.1.0"
+  }
+}

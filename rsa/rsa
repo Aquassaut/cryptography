@@ -1,0 +1,129 @@
+#!/usr/bin/env node
+
+var app = require('commander'),
+    rsa = require('./src/rsa'),
+    fs = require('fs');
+
+var crypt = function (opts, fn) {
+    //on cherche les fichiers d' input / output, sinon, on utilise stdin/out
+    var input = opts.input || false,
+        output = opts.output || false,
+    //On cherche la clé définie, sinon on utilise id_rsa[.pub].json dans le home
+        key = key || false;
+
+    if (typeof key === 'boolean') {
+        if (fn === 'encrypt') key = process.env.HOME + "/id_rsa.pub.json";
+        if (fn === 'decrypt') key = process.env.HOME + "/id_rsa.json";
+    }
+    //on lit de façon syncrone, parce que de toute façon, on ne peut rien faire sans la clé
+    if (fn === 'encrypt') key = rsa.PubKey.fromJSON(fs.readFileSync(key));
+    if (fn === 'decrypt') key = rsa.PrivKey.fromJSON(fs.readFileSync(key));
+
+    if (typeof input === 'boolean') {
+        input = process.stdin;
+    } else {
+        input = fs.createReadStream(input);
+    }
+    if (typeof output === 'boolean') {
+        output = process.stdout;
+    } else {
+        output = fs.createWriteStream(output);
+    }
+
+    input.on('readable', function() {
+        var buff;
+        while (null !== (buff = input.read())) {
+            //le buffer en string
+            var bstring = buff.toString();
+            //On le converti en nombre
+            var num = rsa.messageToBigNum(bstring);
+            //On le crypte ou décrypte,selon la fonction passée 
+            var bncrypt = key[fn](num);
+            //On remet le message chiffré en chaine de caractères
+            var crypt = rsa.bigNumToMessage(bncrypt);
+            //Et on l'affiche
+            output.write(crypt);
+        }
+        //on ferme les descripteurs
+        if (typeof output.close === 'function') output.close();
+        if (typeof input.close === 'function') input.close();
+    });
+};
+var encrypt = function (opts, fn) {
+    crypt(opts, 'encrypt');
+};
+var decrypt = function (opts) {
+    crypt(opts, 'decrypt');
+};
+
+var genkeys = function (opts) {
+    var keys, p1, p2, e_gen_mode, privfile, pubfile;
+    //We're generating two primes
+    p1 = rsa.genprime();
+    p2 = rsa.genprime();
+
+    if (opts.randomize) {
+        e_gen_mode = 'random';
+    } else {
+        e_gen_mode = 'default';
+    }
+    //Building keys
+    keys = rsa.genkeys(p1, p2, 'random');
+
+    //And writing it to the correct files
+    privfile = opts.output || process.env.HOME + "/id_rsa.json";
+    pubfile = opts.output || process.env.HOME + "/id_rsa.pub.json";
+    fs.writeFile(privfile, JSON.stringify(keys.privKey), {
+        mode : 0600,
+        flag : 'w+'
+    }, function(err) {
+        if (err) throw err;
+    });
+    fs.writeFile(pubfile, JSON.stringify(keys.pubKey), {
+        mode : 0644,
+        flag : 'w+'
+    }, function(err) {
+        if (err) throw err;
+    });
+};
+
+
+
+app.version('1.0.0');
+
+app.command('genkeys')
+    .action(function(cmd) {
+        if (cmd.output === true || typeof cmd === 'string') app.help();
+        genkeys(cmd);
+    })
+    .description('generate a key pair')
+    .option('-r, --randomize', 'Randomizes the public key exponent, ' +
+        'overriding the default (65537)')
+    .option('-o, --output [FILE]', 'provides the output file path. ' + 
+        'If none given, defaults to ~/.ssh/id_rsa.js[.pub]');
+
+app.command('encrypt')
+    .description('encrypt a message')
+    .option('-i, --input [FILE]',
+        'input file path. If none given, defaults to stdin')
+    .option('-o, --output [FILE]',
+        'input file path. If none given, defaults to stdout')
+    .option('-k, --key [FILE]', 'The public key to use. ' + 
+        'Defaults to ~/.ssh/id_rsa.js.pub')
+    .action(function(cmd) {
+        encrypt(cmd);
+    });
+
+app.command('decrypt')
+    .description('decrypt a message')
+    .option('-i, --input [FILE]',
+        'provides the input file path. If none given, defaults to stdin')
+    .option('-o, --output [FILE]',
+        'input file path. If none given, defaults to stdout')
+    .option('-k, --key [FILE]', 'The public key to use. ' + 
+        'Defaults to ~/.ssh/id_rsa.js')
+    .action(function(cmd) {
+        decrypt(cmd);
+    });
+
+app.parse(process.argv);
